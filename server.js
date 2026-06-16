@@ -23,27 +23,40 @@ app.use('/api/reports', reportsRoutes);
 
 // Health Check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date() });
+  res.json({ status: 'ok', time: new Date(), dbState: mongoose.connection.readyState });
 });
 
-// Database Connection & Server Launch
+// Database Connection — cache the connection promise to avoid reconnecting on every serverless invocation
 const MONGO_URI = process.env.MONGO_URI;
 
 if (!MONGO_URI) {
   console.warn('WARNING: MONGO_URI environment variable is missing. Database operations will fail.');
 }
 
-mongoose.connect(MONGO_URI || 'mongodb://localhost:27017/online_interviewer')
+let cachedConnection = null;
+async function connectDB() {
+  if (cachedConnection && mongoose.connection.readyState === 1) {
+    return cachedConnection;
+  }
+  cachedConnection = await mongoose.connect(MONGO_URI || 'mongodb://localhost:27017/online_interviewer');
+  console.log('Successfully connected to MongoDB Atlas.');
+  return cachedConnection;
+}
+
+// Connect to DB and start server (for local dev)
+connectDB()
   .then(() => {
-    console.log('Successfully connected to MongoDB Atlas.');
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
   })
   .catch((err) => {
-    console.error('MongoDB Atlas Connection Error:', err);
+    console.error('MongoDB Atlas Connection Error:', err.message);
     console.log(`Fallback: Starting server on port ${PORT} without active database connection.`);
     app.listen(PORT, () => {
       console.log(`Server started on port ${PORT} (DB Connection Offline)`);
     });
   });
+
+// Export for Vercel serverless
+export default app;
